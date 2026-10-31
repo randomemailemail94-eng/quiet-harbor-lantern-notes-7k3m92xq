@@ -1,3 +1,4 @@
+<!-- Arb_Finder v01 - 2026-10-31 - Added total payout (and FanDuel "To Win") to each bet; added "Use last pulled data" option to reuse odds without spending credits -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -45,6 +46,8 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0 6px}
 .leg .odds{color:var(--mute)}
 .leg .odds b{color:var(--ink)}
 .leg .stake{margin-top:6px;font-size:18px;font-weight:700}
+.leg .payout{margin-top:2px;font-weight:600}
+.leg .payout .tw{color:var(--mute);font-weight:400}
 .foot{display:flex;gap:24px;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--line);align-items:baseline}
 .profit{font-size:22px;font-weight:700}
 .pos{color:var(--win)}.neg{color:var(--loss)}
@@ -80,6 +83,9 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0 6px}
       <label class="chk"><input type="checkbox" class="mk" value="totals"> Totals</label>
     </fieldset>
     <label class="chk"><input type="checkbox" id="pre" checked> Pre-game only</label>
+    <label for="src">Odds data</label>
+    <select id="src"><option value="fresh">Pull fresh data (uses credits)</option><option value="saved">Use last pulled data (no credits)</option></select>
+    <p class="hint" id="cacheinfo">Nothing pulled yet this session.</p>
     <p class="hint" id="cost"></p>
     <button id="scan" type="button" class="primary">Find best arb</button>
   </section>
@@ -93,6 +99,7 @@ const $ = id => document.getElementById(id);
 const API = 'https://api.the-odds-api.com/v4';
 const BOOKS = {fanduel:'FanDuel', draftkings:'DraftKings', betmgm:'BetMGM', williamhill_us:'Caesars'};
 let sports = [];
+const cache = {}; // sport key -> {markets, data, time}; lives until the page is refreshed
 
 try { const k = localStorage.getItem('oddsKey'); if (k) { $('key').value = k; $('remember').checked = true; } } catch (e) {}
 
@@ -101,11 +108,21 @@ const money = n => (n < 0 ? '-$' : '$') + Math.abs(n).toFixed(2);
 const am = d => { const v = d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1)); return v > 0 ? '+' + v : String(v); };
 const sgn = p => (p > 0 ? '+' : '') + p;
 const markets = () => [...document.querySelectorAll('.mk:checked')].map(c => c.value);
+const ago = t => { const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 60 ? s + ' sec' : s < 3600 ? Math.round(s / 60) + ' min' : (s / 3600).toFixed(1) + ' hr'; };
+const decOf = a => a > 0 ? 1 + a / 100 : 1 + 100 / -a;
 const say = (t, err) => { $('status').textContent = t; $('status').className = err ? 'err' : ''; };
+
+function updateCacheInfo() {
+  const ks = Object.keys(cache);
+  if (!ks.length) { $('cacheinfo').textContent = 'Nothing pulled yet this session.'; return; }
+  const newest = Math.max(...ks.map(k => cache[k].time)), oldest = Math.min(...ks.map(k => cache[k].time));
+  $('cacheinfo').textContent = `Saved odds for ${ks.length} sport${ks.length === 1 ? '' : 's'}, pulled ${ago(newest)} ago` + (ago(oldest) !== ago(newest) ? ` (oldest ${ago(oldest)} ago)` : '') + '. Odds move, so re-pull if it has been a while.';
+}
 
 function updateCost() {
   const m = markets().length;
   if (!sports.length) { $('cost').textContent = ''; return; }
+  if ($('src').value === 'saved') { $('cost').textContent = 'This scan uses 0 credits (saved data).'; return; }
   const n = $('sport').value === 'all' ? sports.length : 1;
   $('cost').textContent = `This scan uses about ${n * m} credits (${n} sport${n === 1 ? '' : 's'} × ${m} market${m === 1 ? '' : 's'}).`;
 }
@@ -157,6 +174,7 @@ function evalEvent(ev, title, o) {
   }
   const out = [];
   for (const [mk, sides] of Object.entries(byMarket)) {
+    if (!o.mks.includes(mk)) continue; // saved data may hold markets that aren't selected now
     const list = Object.values(sides);
     if (mk === 'h2h' && list.length !== 2) continue; // 3-way (draw) markets can't be hedged with two bets
     for (const s1 of list) {
@@ -177,6 +195,11 @@ function evalEvent(ev, title, o) {
 
 const pickText = (mk, s) => mk === 'h2h' ? `${s.name} to win` : `${s.name} ${mk === 'spreads' ? sgn(s.point) : s.point}`;
 
+function payout(stake, odds, fd) {
+  const st = Math.round(stake * 100) / 100, p = st * decOf(odds);
+  return `<div class="payout">Payout ${money(p)}` + (fd ? ` <span class="tw">(To Win: ${money(p - st)})</span>` : '') + '</div>';
+}
+
 function slip(r, best) {
   const when = new Date(r.ev.commence_time).toLocaleString([], {weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
   const cls = r.profit >= 0 ? 'pos' : 'neg';
@@ -186,11 +209,11 @@ function slip(r, best) {
       <div class="leg"><div class="bk">${esc(BOOKS[r.book])}<span class="tag">boosted</span></div>
         <div class="pick">${esc(pickText(r.mk, r.s1))}</div>
         <div class="odds">${am(r.d1)} boosted to <b>${am(r.bd)}</b></div>
-        <div class="stake">Bet ${money(r.S1)}</div></div>
+        <div class="stake">Bet ${money(r.S1)}</div>${payout(r.S1, +am(r.bd), r.book === 'fanduel')}</div>
       <div class="leg"><div class="bk">${esc(BOOKS[r.hb])}</div>
         <div class="pick">${esc(pickText(r.mk, r.s2))}</div>
         <div class="odds"><b>${am(r.d2)}</b></div>
-        <div class="stake">Bet ${money(r.S2)}</div></div>
+        <div class="stake">Bet ${money(r.S2)}</div>${payout(r.S2, +am(r.d2), r.hb === 'fanduel')}</div>
     </div>
     <div class="foot"><span>Total staked ${money(r.S1 + r.S2)}</span><span>Return on stake ${(r.roi * 100).toFixed(1)}%</span>
       <span class="profit ${cls}">${r.profit >= 0 ? 'Guaranteed profit' : 'Guaranteed loss'} ${money(r.profit)}</span></div>
@@ -202,32 +225,44 @@ async function scan() {
   try {
     const mk = markets();
     if (!mk.length) throw new Error('Pick at least one market.');
-    const opts = {book: $('book').value, boost: Math.max(0, +$('boost').value || 0) / 100, max: +$('max').value, pre: $('pre').checked};
+    const opts = {book: $('book').value, boost: Math.max(0, +$('boost').value || 0) / 100, max: +$('max').value, pre: $('pre').checked, mks: mk};
     if (!(opts.max > 0)) throw new Error('Enter a max bet above $0.');
     if (!sports.length) await loadSports();
-    const keys = $('sport').value === 'all' ? sports.map(s => s.key) : [$('sport').value];
+    const useSaved = $('src').value === 'saved';
     const titleOf = k => (sports.find(s => s.key === k) || {}).title || k;
-    const key = encodeURIComponent($('key').value.trim());
-    const bookParam = Object.keys(BOOKS).join(',');
-    const found = []; let i = 0, done = 0, events = 0, fatal = null;
-    const worker = async () => {
-      while (i < keys.length && !fatal) {
-        const sk = keys[i++];
-        try {
-          const evs = await getJSON(`${API}/sports/${sk}/odds/?apiKey=${key}&markets=${mk.join(',')}&oddsFormat=decimal&bookmakers=${bookParam}`);
-          events += evs.length;
-          evs.forEach(e => found.push(...evalEvent(e, titleOf(sk), opts)));
-        } catch (e) { if (e.fatal) fatal = e; }
-        say(`Checked ${++done} of ${keys.length} sports...`);
-      }
-    };
-    await Promise.all([worker(), worker(), worker(), worker()]);
-    if (fatal) throw fatal;
+    const found = []; let events = 0, keys, note = '';
+    if (useSaved) {
+      const want = $('sport').value === 'all' ? Object.keys(cache) : [$('sport').value];
+      keys = want.filter(k => cache[k] && mk.every(m => cache[k].markets.includes(m)));
+      if (!keys.length) throw new Error('No saved data matches this sport and these markets. Switch to "Pull fresh data" for this scan.');
+      keys.forEach(k => { events += cache[k].data.length; cache[k].data.forEach(e => found.push(...evalEvent(e, titleOf(k), opts))); });
+      note = ` Used saved odds pulled ${ago(Math.min(...keys.map(k => cache[k].time)))} ago, no credits spent.`;
+    } else {
+      keys = $('sport').value === 'all' ? sports.map(s => s.key) : [$('sport').value];
+      const key = encodeURIComponent($('key').value.trim());
+      const bookParam = Object.keys(BOOKS).join(',');
+      let i = 0, done = 0, fatal = null;
+      const worker = async () => {
+        while (i < keys.length && !fatal) {
+          const sk = keys[i++];
+          try {
+            const evs = await getJSON(`${API}/sports/${sk}/odds/?apiKey=${key}&markets=${mk.join(',')}&oddsFormat=decimal&bookmakers=${bookParam}`);
+            cache[sk] = {markets: mk.slice(), data: evs, time: Date.now()};
+            events += evs.length;
+            evs.forEach(e => found.push(...evalEvent(e, titleOf(sk), opts)));
+          } catch (e) { if (e.fatal) fatal = e; }
+          say(`Checked ${++done} of ${keys.length} sports...`);
+        }
+      };
+      await Promise.all([worker(), worker(), worker(), worker()]);
+      updateCacheInfo();
+      if (fatal) throw fatal;
+    }
     found.sort((a, b) => b.profit - a.profit);
     const top = found.slice(0, 10);
-    if (!top.length) { say(`Checked ${events} events. None had a bet on ${BOOKS[opts.book]} plus a hedge on another book.`); return; }
+    if (!top.length) { say(`Checked ${events} events. None had a bet on ${BOOKS[opts.book]} plus a hedge on another book.` + note); return; }
     const win = top[0].profit > 0;
-    say(`Checked ${events} events across ${keys.length} sport${keys.length === 1 ? '' : 's'}.`);
+    say(`Checked ${events} events across ${keys.length} sport${keys.length === 1 ? '' : 's'}.` + note);
     $('out').innerHTML = `<p class="verdict">${win ? `Best arb: ${money(top[0].profit)} guaranteed on a ${money(opts.max)} boosted bet.` : 'No arb with this boost right now. These are the closest matchups.'}</p>` +
       top.map((r, n) => slip(r, n === 0)).join('');
   } catch (e) { say(e.message, true); }
@@ -241,6 +276,8 @@ $('load').addEventListener('click', async () => {
 });
 $('scan').addEventListener('click', scan);
 $('sport').addEventListener('change', updateCost);
+$('src').addEventListener('change', updateCost);
+setInterval(updateCacheInfo, 15000);
 document.querySelectorAll('.mk').forEach(c => c.addEventListener('change', updateCost));
 $('remember').addEventListener('change', saveKey);
 </script>
