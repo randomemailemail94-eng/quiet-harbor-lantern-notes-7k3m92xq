@@ -1,4 +1,4 @@
-<!-- Arb_Finder v01 - 2026-10-31 - Added total payout (and FanDuel "To Win") to each bet; added "Use last pulled data" option to reuse odds without spending credits -->
+<!-- Arb_Finder v02 - 2026-10-31 - Moved FanDuel "To Win" from beside the payout to beside the Bet amount -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -47,7 +47,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0 6px}
 .leg .odds b{color:var(--ink)}
 .leg .stake{margin-top:6px;font-size:18px;font-weight:700}
 .leg .payout{margin-top:2px;font-weight:600}
-.leg .payout .tw{color:var(--mute);font-weight:400}
+.leg .tw{color:var(--mute);font-weight:400;font-size:15px;margin-left:4px}
 .foot{display:flex;gap:24px;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--line);align-items:baseline}
 .profit{font-size:22px;font-weight:700}
 .pos{color:var(--win)}.neg{color:var(--loss)}
@@ -195,10 +195,12 @@ function evalEvent(ev, title, o) {
 
 const pickText = (mk, s) => mk === 'h2h' ? `${s.name} to win` : `${s.name} ${mk === 'spreads' ? sgn(s.point) : s.point}`;
 
-function payout(stake, odds, fd) {
-  const st = Math.round(stake * 100) / 100, p = st * decOf(odds);
-  return `<div class="payout">Payout ${money(p)}` + (fd ? ` <span class="tw">(To Win: ${money(p - st)})</span>` : '') + '</div>';
+function pay(stake, odds) { const st = Math.round(stake * 100) / 100, p = st * decOf(odds); return {p, win: p - st}; }
+function betLine(stake, odds, fd) {
+  const x = pay(stake, odds);
+  return `<div class="stake">Bet ${money(stake)}` + (fd ? ` <span class="tw">(To Win: ${money(x.win)})</span>` : '') + '</div>';
 }
+function payLine(stake, odds) { return `<div class="payout">Payout ${money(pay(stake, odds).p)}</div>`; }
 
 function slip(r, best) {
   const when = new Date(r.ev.commence_time).toLocaleString([], {weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
@@ -209,11 +211,11 @@ function slip(r, best) {
       <div class="leg"><div class="bk">${esc(BOOKS[r.book])}<span class="tag">boosted</span></div>
         <div class="pick">${esc(pickText(r.mk, r.s1))}</div>
         <div class="odds">${am(r.d1)} boosted to <b>${am(r.bd)}</b></div>
-        <div class="stake">Bet ${money(r.S1)}</div>${payout(r.S1, +am(r.bd), r.book === 'fanduel')}</div>
+        ${betLine(r.S1, +am(r.bd), r.book === 'fanduel')}${payLine(r.S1, +am(r.bd))}</div>
       <div class="leg"><div class="bk">${esc(BOOKS[r.hb])}</div>
         <div class="pick">${esc(pickText(r.mk, r.s2))}</div>
         <div class="odds"><b>${am(r.d2)}</b></div>
-        <div class="stake">Bet ${money(r.S2)}</div>${payout(r.S2, +am(r.d2), r.hb === 'fanduel')}</div>
+        ${betLine(r.S2, +am(r.d2), r.hb === 'fanduel')}${payLine(r.S2, +am(r.d2))}</div>
     </div>
     <div class="foot"><span>Total staked ${money(r.S1 + r.S2)}</span><span>Return on stake ${(r.roi * 100).toFixed(1)}%</span>
       <span class="profit ${cls}">${r.profit >= 0 ? 'Guaranteed profit' : 'Guaranteed loss'} ${money(r.profit)}</span></div>
