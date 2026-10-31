@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Boost Arb Finder</title>
+<style>
+:root{--bg:#e9edf1;--panel:#fff;--ink:#16222e;--mute:#5d6b79;--line:#d3dae1;--act:#1c4a73;--win:#0b7a4b;--loss:#a8372e;--tint:#f3f6f9}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "Avenir Next","Segoe UI",system-ui,sans-serif;font-variant-numeric:tabular-nums}
+header{padding:22px 24px 6px;max-width:1180px;margin:0 auto}
+h1{margin:0;font-size:26px;letter-spacing:-.01em}
+header p{margin:4px 0 0;color:var(--mute);max-width:70ch}
+main{max-width:1180px;margin:0 auto;padding:16px 24px 48px;display:grid;grid-template-columns:330px 1fr;gap:20px;align-items:start}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}
+#controls{position:sticky;top:12px}
+label{display:block;font-weight:600;margin:12px 0 0}
+input[type=text],input[type=password],input[type=number],select{display:block;width:100%;margin-top:4px;padding:9px 10px;border:1px solid var(--line);border-radius:6px;font:inherit;background:#fff;color:var(--ink)}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid #7aa7d0;outline-offset:1px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.chk{display:flex;gap:8px;align-items:center;font-weight:400;margin:8px 0 0}
+.chk input{width:auto;margin:0}
+fieldset{border:0;padding:0;margin:12px 0 0}
+legend{font-weight:600;padding:0}
+button{font:inherit;font-weight:600;border-radius:6px;padding:10px 14px;border:1px solid var(--act);cursor:pointer;background:#fff;color:var(--act);margin-top:12px}
+button.primary{background:var(--act);color:#fff;width:100%;font-size:16px;padding:12px}
+button:disabled{opacity:.55;cursor:wait}
+hr{border:0;border-top:1px solid var(--line);margin:18px 0 6px}
+.hint{color:var(--mute);font-size:13px;margin:6px 0 0}
+#quota{font-size:13px;color:var(--mute);margin-left:8px}
+#status{min-height:22px;margin:0 0 12px;color:var(--mute)}
+#status.err{color:var(--loss);font-weight:600}
+.empty{padding:28px;color:var(--mute)}
+.slip{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:12px;overflow:hidden}
+.slip.best{border:2px solid var(--act)}
+.slip header{padding:12px 16px;background:var(--tint);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;max-width:none;margin:0}
+.slip h2{margin:0;font-size:16px}
+.slip .meta{color:var(--mute);font-size:13px}
+.legs{display:grid;grid-template-columns:1fr 1fr}
+.leg{padding:14px 16px}
+.leg+.leg{border-left:1px solid var(--line)}
+.leg .bk{font-weight:700}
+.leg .tag{font-size:12px;font-weight:600;color:var(--act);border:1px solid var(--act);border-radius:4px;padding:0 5px;margin-left:6px}
+.leg .pick{margin:2px 0 6px}
+.leg .odds{color:var(--mute)}
+.leg .odds b{color:var(--ink)}
+.leg .stake{margin-top:6px;font-size:18px;font-weight:700}
+.foot{display:flex;gap:24px;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--line);align-items:baseline}
+.profit{font-size:22px;font-weight:700}
+.pos{color:var(--win)}.neg{color:var(--loss)}
+.verdict{font-size:17px;font-weight:600;margin:0 0 12px}
+@media(max-width:860px){main{grid-template-columns:1fr;padding:12px}#controls{position:static}.legs{grid-template-columns:1fr}.leg+.leg{border-left:0;border-top:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Boost Arb Finder</h1>
+  <p>Finds the guaranteed-profit bet pair for your profit boost, hedged only between FanDuel, DraftKings, BetMGM and Caesars.</p>
+</header>
+<main>
+  <section class="panel" id="controls">
+    <label for="key">The Odds API key</label>
+    <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="Paste your key">
+    <label class="chk"><input type="checkbox" id="remember"> Remember key on this device</label>
+    <button id="load" type="button">Load in-season sports</button><span id="quota"></span>
+    <p class="hint">Loading the sports list does not use credits.</p>
+    <hr>
+    <label for="book">Sportsbook with the boost</label>
+    <select id="book"><option value="fanduel">FanDuel</option><option value="draftkings">DraftKings</option></select>
+    <div class="row">
+      <div><label for="boost">Profit boost (%)</label><input type="number" id="boost" value="50" min="0" step="1"></div>
+      <div><label for="max">Max bet ($)</label><input type="number" id="max" value="25" min="1" step="1"></div>
+    </div>
+    <label for="sport">Sport</label>
+    <select id="sport" disabled><option value="all">Load sports first</option></select>
+    <fieldset>
+      <legend>Markets</legend>
+      <label class="chk"><input type="checkbox" class="mk" value="h2h" checked> Moneyline</label>
+      <label class="chk"><input type="checkbox" class="mk" value="spreads"> Spreads</label>
+      <label class="chk"><input type="checkbox" class="mk" value="totals"> Totals</label>
+    </fieldset>
+    <label class="chk"><input type="checkbox" id="pre" checked> Pre-game only</label>
+    <p class="hint" id="cost"></p>
+    <button id="scan" type="button" class="primary">Find best arb</button>
+  </section>
+  <section>
+    <p id="status" role="status"></p>
+    <div id="out"><div class="panel empty">Enter your key and load the sports list. Pick one sport to spend the fewest credits, or scan every in-season sport. Soccer is left out because its 3-way markets can't be hedged this way.</div></div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const API = 'https://api.the-odds-api.com/v4';
+const BOOKS = {fanduel:'FanDuel', draftkings:'DraftKings', betmgm:'BetMGM', williamhill_us:'Caesars'};
+let sports = [];
+
+try { const k = localStorage.getItem('oddsKey'); if (k) { $('key').value = k; $('remember').checked = true; } } catch (e) {}
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money = n => (n < 0 ? '-$' : '$') + Math.abs(n).toFixed(2);
+const am = d => { const v = d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1)); return v > 0 ? '+' + v : String(v); };
+const sgn = p => (p > 0 ? '+' : '') + p;
+const markets = () => [...document.querySelectorAll('.mk:checked')].map(c => c.value);
+const say = (t, err) => { $('status').textContent = t; $('status').className = err ? 'err' : ''; };
+
+function updateCost() {
+  const m = markets().length;
+  if (!sports.length) { $('cost').textContent = ''; return; }
+  const n = $('sport').value === 'all' ? sports.length : 1;
+  $('cost').textContent = `This scan uses about ${n * m} credits (${n} sport${n === 1 ? '' : 's'} × ${m} market${m === 1 ? '' : 's'}).`;
+}
+
+async function getJSON(url) {
+  let r;
+  try { r = await fetch(url); }
+  catch (e) { throw new Error('Could not reach The Odds API. Check your internet connection.'); }
+  const rem = r.headers.get('x-requests-remaining');
+  if (rem !== null) $('quota').textContent = rem + ' credits left';
+  if (!r.ok) {
+    const err = new Error(r.status === 401 ? 'The API key was rejected. Check it and try again.'
+      : r.status === 429 ? 'Out of credits or rate limited. Check your Odds API usage.'
+      : `The API returned an error (${r.status}).`);
+    err.fatal = r.status === 401 || r.status === 429;
+    err.status = r.status;
+    throw err;
+  }
+  return r.json();
+}
+
+function saveKey() {
+  try { $('remember').checked ? localStorage.setItem('oddsKey', $('key').value.trim()) : localStorage.removeItem('oddsKey'); } catch (e) {}
+}
+
+async function loadSports() {
+  const key = $('key').value.trim();
+  if (!key) throw new Error('Enter your API key first.');
+  saveKey();
+  const all = await getJSON(`${API}/sports/?apiKey=${encodeURIComponent(key)}`);
+  sports = all.filter(s => s.active && !s.has_outrights && !s.key.startsWith('soccer_'))
+              .sort((a, b) => a.group.localeCompare(b.group) || a.title.localeCompare(b.title));
+  const groups = {};
+  sports.forEach(s => (groups[s.group] ??= []).push(s));
+  $('sport').innerHTML = `<option value="all">All in-season sports (${sports.length})</option>` +
+    Object.entries(groups).map(([g, list]) => `<optgroup label="${esc(g)}">` +
+      list.map(s => `<option value="${esc(s.key)}">${esc(s.title)}</option>`).join('') + '</optgroup>').join('');
+  $('sport').disabled = false;
+  updateCost();
+  say(`${sports.length} sports are in season.`);
+}
+
+function evalEvent(ev, title, o) {
+  if (o.pre && new Date(ev.commence_time) <= Date.now()) return [];
+  const byMarket = {};
+  for (const bm of ev.bookmakers) for (const m of bm.markets) for (const x of m.outcomes) {
+    const side = ((byMarket[m.key] ??= {})[x.name + '|' + (x.point ?? '')] ??= {name: x.name, point: x.point, offers: []});
+    side.offers.push({book: bm.key, price: x.price});
+  }
+  const out = [];
+  for (const [mk, sides] of Object.entries(byMarket)) {
+    const list = Object.values(sides);
+    if (mk === 'h2h' && list.length !== 2) continue; // 3-way (draw) markets can't be hedged with two bets
+    for (const s1 of list) {
+      const want = mk === 'spreads' ? -s1.point : s1.point;
+      const s2 = list.find(s => s.name !== s1.name && s.point === want);
+      if (!s2) continue;
+      const boosted = s1.offers.find(x => x.book === o.book);
+      const hedge = s2.offers.filter(x => x.book !== o.book).sort((a, b) => b.price - a.price)[0];
+      if (!boosted || !hedge) continue;
+      const bd = 1 + (boosted.price - 1) * (1 + o.boost);
+      const S1 = o.max, S2 = S1 * bd / hedge.price;
+      const profit = S1 * bd - S1 - S2;
+      out.push({title, ev, mk, s1, s2, d1: boosted.price, bd, hb: hedge.book, d2: hedge.price, S1, S2, profit, roi: profit / (S1 + S2), book: o.book});
+    }
+  }
+  return out;
+}
+
+const pickText = (mk, s) => mk === 'h2h' ? `${s.name} to win` : `${s.name} ${mk === 'spreads' ? sgn(s.point) : s.point}`;
+
+function slip(r, best) {
+  const when = new Date(r.ev.commence_time).toLocaleString([], {weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
+  const cls = r.profit >= 0 ? 'pos' : 'neg';
+  return `<article class="slip${best ? ' best' : ''}">
+    <header><h2>${esc(r.ev.away_team)} at ${esc(r.ev.home_team)}</h2><span class="meta">${esc(r.title)} · ${esc(when)} · ${r.mk === 'h2h' ? 'Moneyline' : r.mk === 'spreads' ? 'Spread' : 'Total'}</span></header>
+    <div class="legs">
+      <div class="leg"><div class="bk">${esc(BOOKS[r.book])}<span class="tag">boosted</span></div>
+        <div class="pick">${esc(pickText(r.mk, r.s1))}</div>
+        <div class="odds">${am(r.d1)} boosted to <b>${am(r.bd)}</b></div>
+        <div class="stake">Bet ${money(r.S1)}</div></div>
+      <div class="leg"><div class="bk">${esc(BOOKS[r.hb])}</div>
+        <div class="pick">${esc(pickText(r.mk, r.s2))}</div>
+        <div class="odds"><b>${am(r.d2)}</b></div>
+        <div class="stake">Bet ${money(r.S2)}</div></div>
+    </div>
+    <div class="foot"><span>Total staked ${money(r.S1 + r.S2)}</span><span>Return on stake ${(r.roi * 100).toFixed(1)}%</span>
+      <span class="profit ${cls}">${r.profit >= 0 ? 'Guaranteed profit' : 'Guaranteed loss'} ${money(r.profit)}</span></div>
+  </article>`;
+}
+
+async function scan() {
+  const btn = $('scan'); btn.disabled = true; $('out').innerHTML = '';
+  try {
+    const mk = markets();
+    if (!mk.length) throw new Error('Pick at least one market.');
+    const opts = {book: $('book').value, boost: Math.max(0, +$('boost').value || 0) / 100, max: +$('max').value, pre: $('pre').checked};
+    if (!(opts.max > 0)) throw new Error('Enter a max bet above $0.');
+    if (!sports.length) await loadSports();
+    const keys = $('sport').value === 'all' ? sports.map(s => s.key) : [$('sport').value];
+    const titleOf = k => (sports.find(s => s.key === k) || {}).title || k;
+    const key = encodeURIComponent($('key').value.trim());
+    const bookParam = Object.keys(BOOKS).join(',');
+    const found = []; let i = 0, done = 0, events = 0, fatal = null;
+    const worker = async () => {
+      while (i < keys.length && !fatal) {
+        const sk = keys[i++];
+        try {
+          const evs = await getJSON(`${API}/sports/${sk}/odds/?apiKey=${key}&markets=${mk.join(',')}&oddsFormat=decimal&bookmakers=${bookParam}`);
+          events += evs.length;
+          evs.forEach(e => found.push(...evalEvent(e, titleOf(sk), opts)));
+        } catch (e) { if (e.fatal) fatal = e; }
+        say(`Checked ${++done} of ${keys.length} sports...`);
+      }
+    };
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    if (fatal) throw fatal;
+    found.sort((a, b) => b.profit - a.profit);
+    const top = found.slice(0, 10);
+    if (!top.length) { say(`Checked ${events} events. None had a bet on ${BOOKS[opts.book]} plus a hedge on another book.`); return; }
+    const win = top[0].profit > 0;
+    say(`Checked ${events} events across ${keys.length} sport${keys.length === 1 ? '' : 's'}.`);
+    $('out').innerHTML = `<p class="verdict">${win ? `Best arb: ${money(top[0].profit)} guaranteed on a ${money(opts.max)} boosted bet.` : 'No arb with this boost right now. These are the closest matchups.'}</p>` +
+      top.map((r, n) => slip(r, n === 0)).join('');
+  } catch (e) { say(e.message, true); }
+  finally { btn.disabled = false; }
+}
+
+$('load').addEventListener('click', async () => {
+  $('load').disabled = true;
+  try { await loadSports(); } catch (e) { say(e.message, true); }
+  $('load').disabled = false;
+});
+$('scan').addEventListener('click', scan);
+$('sport').addEventListener('change', updateCost);
+document.querySelectorAll('.mk').forEach(c => c.addEventListener('change', updateCost));
+$('remember').addEventListener('change', saveKey);
+</script>
+</body>
+</html>
