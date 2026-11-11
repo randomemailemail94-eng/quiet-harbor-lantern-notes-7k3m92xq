@@ -1,4 +1,4 @@
-<!-- Arb_Finder v05 - 2026-11-11 - Fixed Bonus bet tab still showing the Profit boost and Max bet fields -->
+<!-- Arb_Finder v06 - 2026-11-11 - Warns when the boost sportsbook returned no odds at all (for example Caesars on a free Odds API plan) -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -314,11 +314,12 @@ async function scan() {
     const want = chosen();
     if (!want.length) throw new Error('Pick at least one sport.');
     const useSaved = $('src').value === 'saved';
-    const found = [], notes = []; let events = 0, got = 0, note = '';
+    const found = [], notes = []; let events = 0, got = 0, withBook = 0, note = '';
+    const hasBook = e => e.bookmakers.some(b => b.key === opts.book);
     if (useSaved) {
       const keys = want.filter(k => cache[k] && mk.every(m => cache[k].markets.includes(m)));
       if (!keys.length) throw new Error('No saved data matches these sports and markets. Switch to "Pull fresh data" for this scan.');
-      keys.forEach(k => { events += cache[k].data.length; cache[k].data.forEach(e => found.push(...evalEvent(e, titleOf(k), opts))); });
+      keys.forEach(k => { events += cache[k].data.length; withBook += cache[k].data.filter(hasBook).length; cache[k].data.forEach(e => found.push(...evalEvent(e, titleOf(k), opts))); });
       got = keys.length;
       const missing = want.filter(k => !keys.includes(k));
       if (missing.length) notes.push(`No saved data for: ${missing.map(titleOf).join(', ')}. Pull fresh data to include ${missing.length === 1 ? 'it' : 'them'}.`);
@@ -333,7 +334,7 @@ async function scan() {
           try {
             const evs = await getJSON(`${API}/sports/${sk}/odds/?apiKey=${key}&markets=${mk.join(',')}&oddsFormat=decimal&bookmakers=${bookParam}`);
             cache[sk] = {markets: mk.slice(), data: evs, time: Date.now()};
-            got++; events += evs.length;
+            got++; events += evs.length; withBook += evs.filter(hasBook).length;
             evs.forEach(e => found.push(...evalEvent(e, titleOf(sk), opts)));
           } catch (e) {
             if (e.fatal) fatal = e; else failed.push(`${titleOf(sk)} (${e.short || e.message})`);
@@ -347,6 +348,7 @@ async function scan() {
       if (fatal) notes.push(`${fatal.message} The scan stopped early: ${got} sport${got === 1 ? '' : 's'} finished and ${want.length - i} ${want.length - i === 1 ? 'was' : 'were'} never checked. Results below only cover the finished sports.`);
       if (failed.length) notes.push(`No odds came back for: ${failed.join(', ')}.`);
     }
+    if (events && !withBook) notes.unshift(`${BOOKS[opts.book]} did not appear in any of the ${events} events, so nothing could be matched. ` + (opts.book === 'williamhill_us' ? 'The Odds API lists Caesars as available on paid plans only, so a free key returns no Caesars odds. Hedges on Caesars are missing too.' : 'It may not list odds for these sports or markets right now.'));
     warn(notes);
     found.sort((a, b) => b.profit - a.profit);
     const top = found.slice(0, 10);
